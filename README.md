@@ -44,6 +44,33 @@ to express the question.
 A service token with no acting user is refused rather than defaulted to
 "some user": that fallback is how cross-tenant leaks are born.
 
+## Why this app talks to the gateway itself
+
+`imperal-sdk` 5.12.0 added `ctx.conversations` — the same six routes this app
+calls, with the same headers and the same owner-scoping. Using it here would
+be the obvious thing, and it would be wrong *today*:
+
+    platform worker runtime → imperal_sdk 5.11.0
+    5.11.0 has no ctx.conversations
+
+Extensions run inside the platform worker's interpreter, not their own. So
+the SDK version that matters is the worker's, and the worker picks up a new
+SDK when the worker cuts a release — never by editing it in place. Until
+that release lands, `ctx.conversations` resolves to nothing and every tool
+in this app would fail at the first call.
+
+**When the worker ships 5.12.0 or newer**, delete `gw()` and `_headers()`
+from `app.py` and replace the seven `await gw(...)` call sites with
+`ctx.conversations.*`. The method names were chosen to match, so the
+refactor is mechanical:
+
+    await gw("GET", "/v1/conversations", uid)      → await ctx.conversations.list()
+    await gw("POST", f"/v1/conversations/{cid}/activate", uid)
+                                                   → await ctx.conversations.activate(cid)
+
+`imperal.json` records `sdk_version` at build time — that field is the
+fingerprint to check before assuming the runtime has caught up.
+
 ## Layout
 
 ```
