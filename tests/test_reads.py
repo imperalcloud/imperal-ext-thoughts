@@ -140,3 +140,55 @@ async def test_read_explains_a_missing_thread_in_plain_words(make_ctx, gw_mock):
 
     assert res.status == "error"
     assert "does not exist" in str(res.error).lower()
+
+
+# ── the shape the archive REALLY returns ───────────────────────────────── #
+#
+# The fixtures above were written from the API sketch: a `preview` key and an
+# epoch timestamp. Production sends neither — fs_backend stores
+# `last_message_preview` and ISO-8601 with a trailing Z. Both bugs shipped
+# green precisely because every test agreed with the sketch instead of with
+# the archive, so these lock the real shape down.
+
+REAL_SHAPE = {
+    "conversations": [{
+        "id": "conv_real",
+        "title": "Привет!",
+        "message_count": 6,
+        "last_message_preview": "so the invoice is wrong and needs a credit note",
+        "updated_at": "2026-08-24T13:16:49Z",
+    }],
+    "active_id": "conv_real",
+}
+
+
+@pytest.mark.asyncio
+async def test_list_reads_the_preview_under_the_archives_own_key(make_ctx, gw_mock):
+    gw_mock.get(LIST_PATH, json=REAL_SHAPE)
+
+    res = await h.fn_list_conversations(make_ctx(), ListParams())
+
+    row = res.data[0]
+    assert row["preview"].startswith("so the invoice is wrong"), \
+        "preview must come from last_message_preview, not a blank subtitle"
+
+
+@pytest.mark.asyncio
+async def test_list_filter_matches_an_archive_preview(make_ctx, gw_mock):
+    """The query filter matches title OR preview — useless if preview is blank."""
+    gw_mock.get(LIST_PATH, json=REAL_SHAPE)
+
+    res = await h.fn_list_conversations(make_ctx(), ListParams(query="credit note"))
+
+    assert len(res.data) == 1, "a word living only in the preview must still match"
+
+
+@pytest.mark.asyncio
+async def test_list_renders_an_iso_timestamp_as_an_age(make_ctx, gw_mock):
+    gw_mock.get(LIST_PATH, json=REAL_SHAPE)
+
+    res = await h.fn_list_conversations(make_ctx(), ListParams())
+
+    updated = res.data[0]["updated"]
+    assert "T" not in updated, f"raw ISO leaked into the UI: {updated!r}"
+    assert updated.endswith("ago") or updated == "just now" or " " in updated

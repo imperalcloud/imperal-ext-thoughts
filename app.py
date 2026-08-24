@@ -41,7 +41,7 @@ from imperal_sdk.errors import APIError, AuthError, NotFoundError
 log = logging.getLogger("thoughts")
 
 ext = Extension(
-    "thoughts", version="1.1.0",
+    "thoughts", version="1.1.1",
     # Declare exactly what this touches: the caller's own conversations,
     # read and written. Never a wildcard, even for a system app.
     capabilities=["conversations:read", "conversations:write"],

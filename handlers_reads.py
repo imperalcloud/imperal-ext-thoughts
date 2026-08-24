@@ -18,7 +18,11 @@ def _row(c: dict, active_id: str) -> dict:
         "id": c.get("id", ""),
         "title": c.get("title") or "",
         "message_count": int(c.get("message_count") or 0),
-        "preview": clip(c.get("preview") or "", 80),
+        # The archive calls it `last_message_preview`; older/other shapes may
+        # say `preview`. Accept both rather than silently rendering a blank
+        # subtitle — an empty preview also half-kills the search filter below,
+        # which matches on title OR preview.
+        "preview": clip(c.get("last_message_preview") or c.get("preview") or "", 80),
         "updated": age(c.get("updated_at")),
         "live": c.get("id") == active_id,
         "pinned": bool(c.get("pinned")),

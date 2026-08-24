@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.12.1",
   "app_id": "thoughts",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "name": "Thoughts",
   "description": "Every conversation with Webbee, on every surface, kept and reachable — search back through past threads, continue an older one, rename or pin what matters, and start fresh without losing what came before.",
   "icon": "icon.svg",

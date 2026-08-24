@@ -13,13 +13,44 @@ import time
 from datetime import datetime, timezone
 
 
+def _epoch(ts: float | int | str) -> float | None:
+    """Epoch seconds from either a number or an ISO-8601 string.
+
+    The archive stores ISO-8601 with a trailing ``Z`` (see fs_backend._now),
+    while other callers pass epoch seconds. Accepting only one of those meant
+    every archive timestamp fell through to a raw ``2026-08-24T13:16:49`` in
+    the UI — the exact string this module exists to avoid.
+    """
+    try:
+        return float(ts)
+    except (TypeError, ValueError):
+        pass
+    text = str(ts).strip()
+    if not text:
+        return None
+    try:
+        # fromisoformat handles "+00:00" but not the "Z" spelling before 3.11.
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        # The archive is UTC throughout. A bare timestamp read as LOCAL time
+        # is wrong by the machine's offset — three hours here, which turned
+        # "26m ago" into "3h ago". Absent an offset, assume the zone the
+        # storage actually uses.
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
 def age(ts: float | int | str | None) -> str:
-    """Human-scale age of an epoch timestamp: 'just now', '4m', '2h', '3d'."""
+    """Human-scale age of a timestamp: 'just now', '4m', '2h', '3d'.
+
+    Accepts epoch seconds or an ISO-8601 string.
+    """
     if not ts:
         return ""
-    try:
-        t = float(ts)
-    except (TypeError, ValueError):
+    t = _epoch(ts)
+    if t is None:
         return str(ts)[:19]
 
     delta = time.time() - t
