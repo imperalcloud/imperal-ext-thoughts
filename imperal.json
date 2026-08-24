@@ -1,0 +1,444 @@
+{
+  "manifest_schema_version": 3,
+  "sdk_version": "5.11.0",
+  "app_id": "thoughts",
+  "version": "1.0.0",
+  "name": "Thoughts",
+  "description": "Every conversation with Webbee, on every surface, kept and reachable — search back through past threads, continue an older one, rename or pin what matters, and start fresh without losing what came before.",
+  "icon": "icon.svg",
+  "actions_explicit": true,
+  "system": true,
+  "capabilities": [
+    "conversations:read",
+    "conversations:write"
+  ],
+  "tools": [
+    {
+      "name": "delete_conversation",
+      "description": "Permanently erase ONE conversation and everything said in it. This cannot be undone. If it is the live thread, the chat record is cleared too and a fresh thread opens in its place, so nothing keeps writing into a deleted conversation. Always confirm which thread with the user first.",
+      "action_type": "destructive",
+      "chain_callable": true,
+      "effects": [
+        "delete:conversation"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "conversation_id": {
+            "description": "Which thread to delete for good — its id from list_conversations. This cannot be undone, so it must be an id the user actually chose, never one inferred from a description.",
+            "title": "Conversation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ],
+        "title": "DeleteParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "What a delete actually did — stated, not assumed.",
+        "properties": {
+          "deleted": {
+            "description": "The thread id that is now gone",
+            "title": "Deleted",
+            "type": "string"
+          },
+          "was_live": {
+            "default": false,
+            "description": "Whether it was the live conversation",
+            "title": "Was Live",
+            "type": "boolean"
+          },
+          "replacement_id": {
+            "default": "",
+            "description": "The fresh thread opened in its place, if any",
+            "title": "Replacement Id",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "description": "Plain-language account of what happened",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeletedRecord",
+        "type": "object"
+      },
+      "event": "conversation_deleted",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    },
+    {
+      "name": "list_conversations",
+      "description": "List the user's past conversations with Webbee — every thread from every surface (panel, Telegram, terminal), pinned first then newest, marking which one is live right now. Use this FIRST whenever the user refers to something you talked about before, instead of answering from memory.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "limit": {
+            "default": 30,
+            "description": "How many threads to return (newest/pinned first).",
+            "maximum": 200,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "include_archived": {
+            "default": false,
+            "description": "Also list threads the user archived out of the way.",
+            "title": "Include Archived",
+            "type": "boolean"
+          },
+          "query": {
+            "default": "",
+            "description": "Optional filter — matches the thread's title or the preview of its last message, case-insensitive. Use it when the user describes a conversation instead of naming it ('the one about billing').",
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "title": "ListParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "One thread in the room.",
+        "properties": {
+          "id": {
+            "description": "Thread id — pass this to read/continue/rename/delete",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "Its name; empty until it has earned one",
+            "title": "Title",
+            "type": "string"
+          },
+          "message_count": {
+            "default": 0,
+            "description": "How many messages it holds",
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "preview": {
+            "default": "",
+            "description": "Opening of the last message",
+            "title": "Preview",
+            "type": "string"
+          },
+          "updated": {
+            "default": "",
+            "description": "How long ago it was last touched",
+            "title": "Updated",
+            "type": "string"
+          },
+          "live": {
+            "default": false,
+            "description": "True for the one every surface is reading now",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "pinned": {
+            "default": false,
+            "description": "Kept at the top of the list",
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "archived": {
+            "default": false,
+            "description": "Hidden from the default listing",
+            "title": "Archived",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ConversationRecord",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    },
+    {
+      "name": "read_conversation",
+      "description": "Read what was actually said in one conversation — its messages, oldest first, with which surface each was said on. Pass a thread id from list_conversations, or leave it empty to read the live conversation.",
+      "action_type": "read",
+      "chain_callable": true,
+      "effects": [],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "conversation_id": {
+            "default": "",
+            "description": "Which thread — its id from list_conversations. Empty = the live conversation (the one every surface is reading right now).",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "limit": {
+            "default": 40,
+            "description": "How many messages to return, oldest-first.",
+            "maximum": 500,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "ReadParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "One message inside a thread, oldest-first.",
+        "properties": {
+          "role": {
+            "description": "who said it — user or assistant",
+            "title": "Role",
+            "type": "string"
+          },
+          "text": {
+            "description": "What was said",
+            "title": "Text",
+            "type": "string"
+          },
+          "surface": {
+            "default": "",
+            "description": "Where it was said — panel, telegram, terminal",
+            "title": "Surface",
+            "type": "string"
+          },
+          "when": {
+            "default": "",
+            "description": "How long ago",
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "text"
+        ],
+        "title": "MessageRecord",
+        "type": "object"
+      },
+      "event": "",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    },
+    {
+      "name": "continue_conversation",
+      "description": "Walk back into an earlier conversation and make it the live one, so the next thing said continues THAT thread on every surface. The current conversation is archived first, never lost. Use when the user wants to pick up something from before — list_conversations first to get the id.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "update:conversation"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "conversation_id": {
+            "description": "Which thread to make live — its id from list_conversations. Never guess this: list first if the user described it in words.",
+            "title": "Conversation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ],
+        "title": "ContinueParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "The thread that is live after a switch, a start, or a rename.",
+        "properties": {
+          "conversation_id": {
+            "description": "The thread this call acted on",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "Its name right now",
+            "title": "Title",
+            "type": "string"
+          },
+          "message_count": {
+            "default": 0,
+            "description": "How many messages it holds",
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "description": "What happened to the previous thread",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ],
+        "title": "SwitchedRecord",
+        "type": "object"
+      },
+      "event": "conversation_switched",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    },
+    {
+      "name": "new_conversation",
+      "description": "Start a fresh conversation thread. The current one is archived first and stays readable. Use when the user wants a clean slate or is clearly changing subject and asks to start over.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "create:conversation"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "title": {
+            "default": "",
+            "description": "Optional name for the new thread. Leave empty and it names itself from the first thing said in it.",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "title": "NewParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "The thread that is live after a switch, a start, or a rename.",
+        "properties": {
+          "conversation_id": {
+            "description": "The thread this call acted on",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "Its name right now",
+            "title": "Title",
+            "type": "string"
+          },
+          "message_count": {
+            "default": 0,
+            "description": "How many messages it holds",
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "description": "What happened to the previous thread",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ],
+        "title": "SwitchedRecord",
+        "type": "object"
+      },
+      "event": "conversation_started",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    },
+    {
+      "name": "rename_conversation",
+      "description": "Give a conversation a name of the user's choosing. A hand-picked title is kept as-is and never overwritten by the automatic namer afterwards.",
+      "action_type": "write",
+      "chain_callable": true,
+      "effects": [
+        "update:conversation"
+      ],
+      "id_projection": "",
+      "params_schema": {
+        "properties": {
+          "conversation_id": {
+            "description": "Which thread to rename — its id from list_conversations.",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "The new name. A hand-written name is final: the automatic namer stops touching this thread once a person has named it.",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "title"
+        ],
+        "title": "RenameParams",
+        "type": "object"
+      },
+      "return_schema": {
+        "description": "The thread that is live after a switch, a start, or a rename.",
+        "properties": {
+          "conversation_id": {
+            "description": "The thread this call acted on",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "description": "Its name right now",
+            "title": "Title",
+            "type": "string"
+          },
+          "message_count": {
+            "default": 0,
+            "description": "How many messages it holds",
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "description": "What happened to the previous thread",
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id"
+        ],
+        "title": "SwitchedRecord",
+        "type": "object"
+      },
+      "event": "conversation_renamed",
+      "background": false,
+      "long_running": false,
+      "scopes": [],
+      "owner_chat_tool": "tool_thoughts_chat"
+    }
+  ],
+  "signals": [],
+  "schedules": [],
+  "required_scopes": [],
+  "icon_size_bytes": 377,
+  "lifecycle": {
+    "health_check": {
+      "interval_sec": 60
+    }
+  },
+  "panels": [],
+  "hidden_in_sidebar": true
+}
