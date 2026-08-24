@@ -31,12 +31,17 @@ class MessageRecord(BaseModel):
 
     role: str = Field(description="who said it — user or assistant")
     text: str = Field(description="What was said")
-    # Not every writer of the live record stamps this: the gateway tags it on
-    # the native-app routes, while panel / Telegram / terminal turns reach the
-    # record through other writers that do not. So it is genuinely optional —
-    # described as "when known" rather than promising an origin the reader
-    # would find blank on the surfaces they actually use.
-    surface: str = Field(default="", description="Where it was said, when the platform recorded one")
+    # Every writer of the live record now stamps this AT WRITE TIME, where the
+    # answer is a fact: the gateway on its native routes, the panel BFF on both
+    # of its chat routes, and the kernel on every message it delivers (it has
+    # already resolved the turn's surface to route the reply).
+    #
+    # Still optional, and deliberately so: messages archived BEFORE that fix
+    # carry no stamp and never will. The tempting repair — reading the shared
+    # active-surface marker at render time — is exactly wrong, because that
+    # marker says where the user is NOW; applied to an old message it invents a
+    # confident wrong origin. A blank is honest; a plausible lie is not.
+    surface: str = Field(default="", description="Where it was said — blank only for messages archived before the platform recorded it")
     when: str = Field(default="", description="How long ago")
 
 
