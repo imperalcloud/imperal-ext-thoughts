@@ -1,15 +1,25 @@
 """Test harness for imperal-ext-thoughts.
 
-The tools reach the gateway through exactly one function — ``app.gw`` — which
-opens its client via ``shared_http`` (the SDK's per-process keepalive pool).
+The tools reach the conversation store through exactly one thing —
+``ctx.conversations``, the SDK namespace — so that is what the harness has
+to stand up.
 
-WHY THIS PATCHES ``app.shared_http`` AND NOT ``httpx.AsyncClient``.
-The SDK's own module says so: "monkeypatch the importing module's
-``shared_http`` symbol with any async-context-manager factory". Patching
-``httpx.AsyncClient`` — the pattern the older sibling extensions use — would
-NOT intercept these calls, because the pool is built once per process and
-handed out again on later calls. A test written that way would pass while
-touching nothing, which is worse than no test at all.
+WHY IT INJECTS A **REAL** CLIENT AND NOT A FAKE NAMESPACE.
+Handing the handlers a stub object with ``list``/``delete`` methods would be
+easier and would test almost nothing: the interesting part of this app is
+which route each tool ends up asking for, and a stub answers that question
+by definition. So the fixture builds a genuine ``ConversationsClient`` and
+takes the ground out from under it instead — the client constructs its own
+paths, headers and error types exactly as it does in production, and the
+mock only decides what comes back. Every route assertion in these tests is
+therefore still a real assertion.
+
+WHY IT PATCHES ``_gateway.shared_http``.
+The SDK opens its connections through a per-process keepalive pool, built
+once and handed out again on later calls. Patching ``httpx.AsyncClient`` —
+the pattern the older sibling extensions use — would intercept nothing,
+because by test time the pool already exists. The SDK's own suite patches
+this same symbol, for this same reason.
 
 No respx: the validation host's worker venv has httpx + pytest and nothing
 else.
@@ -26,15 +36,11 @@ import pytest
 # root must be importable BEFORE any test module imports them.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import app as app_mod  # noqa: E402 (import after the sys.path fix-up above)
+from imperal_sdk import _gateway  # noqa: E402
+from imperal_sdk.conversations.client import ConversationsClient  # noqa: E402
 
-
-@pytest.fixture
-def make_ctx():
-    """Minimal ctx stand-in — only ``ctx.user.imperal_id`` is ever read."""
-    def _make(imperal_id: str = "imp_u_TEST"):
-        return SimpleNamespace(user=SimpleNamespace(imperal_id=imperal_id))
-    return _make
+GW = "http://gateway.test:8085"
+TOKEN = "svc-token-test"
 
 
 class GatewayMock:
@@ -54,12 +60,12 @@ class GatewayMock:
         handler = self._handle
 
         @asynccontextmanager
-        async def fake_shared_http(*_a, **_kw):
+        async def fake_pool(*_a, **_kw):
             transport = httpx.MockTransport(handler)
             async with httpx.AsyncClient(transport=transport) as c:
                 yield c
 
-        monkeypatch.setattr(app_mod, "shared_http", fake_shared_http)
+        monkeypatch.setattr(_gateway, "shared_http", fake_pool)
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -107,3 +113,20 @@ class GatewayMock:
 @pytest.fixture
 def gw_mock(monkeypatch):
     return GatewayMock(monkeypatch)
+
+
+@pytest.fixture
+def make_ctx():
+    """A ctx stand-in carrying the two things the handlers read.
+
+    ``ctx.conversations`` is the real client (see the module docstring), so
+    the route a tool asks for is genuinely the route the SDK builds.
+    """
+    def _make(imperal_id: str = "imp_u_TEST"):
+        return SimpleNamespace(
+            user=SimpleNamespace(imperal_id=imperal_id),
+            conversations=ConversationsClient(
+                gateway_url=GW, service_token=TOKEN, user_id=imperal_id,
+                extension_id="thoughts", tenant_id="t1"),
+        )
+    return _make

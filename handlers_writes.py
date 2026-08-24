@@ -7,7 +7,7 @@ again. The one tool that really removes something lives in
 """
 from __future__ import annotations
 
-from app import ActionResult, chat, gw, safe_err, _user_id
+from app import ActionResult, chat, failed, _user_id
 from fmt import clip
 from models import SwitchedRecord
 from params import ContinueParams, NewParams, RenameParams
@@ -37,11 +37,9 @@ async def fn_continue_conversation(ctx, params: ContinueParams) -> ActionResult:
             "Which conversation? Run list_conversations and pass an id.")
 
     try:
-        data, err = await gw("POST", f"/v1/conversations/{cid}/activate", uid)
+        data = await ctx.conversations.activate(cid)
     except Exception as e:
-        return ActionResult.error(f"Could not switch conversation: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("switch conversation", e)
 
     conv = (data or {}).get("conversation") or {}
     title = conv.get("title") or "(untitled)"
@@ -75,11 +73,9 @@ async def fn_new_conversation(ctx, params: NewParams) -> ActionResult:
 
     title = (params.title or "").strip()[:200]
     try:
-        data, err = await gw("POST", "/v1/conversations", uid, body={"title": title})
+        data = await ctx.conversations.create(title=title)
     except Exception as e:
-        return ActionResult.error(f"Could not start a conversation: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("start a conversation", e)
 
     conv = (data or {}).get("conversation") or {}
     shown = conv.get("title") or title or "(it will name itself)"
@@ -118,17 +114,13 @@ async def fn_rename_conversation(ctx, params: RenameParams) -> ActionResult:
     if not title:
         return ActionResult.error("A title cannot be empty.")
 
-    # title_generated=False is the whole point: it tells the namer this one is
-    # spoken for. Renaming without it would work, and then be silently undone.
+    # Passing a title through the client also marks the thread human-named,
+    # so the automatic namer leaves it alone — that rule lives in the SDK
+    # now rather than being re-stated (and eventually forgotten) here.
     try:
-        data, err = await gw(
-            "PATCH", f"/v1/conversations/{cid}", uid,
-            body={"title": title, "title_generated": False},
-        )
+        data = await ctx.conversations.update(cid, title=title)
     except Exception as e:
-        return ActionResult.error(f"Could not rename: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("rename the conversation", e)
 
     conv = (data or {}).get("conversation") or {}
     return ActionResult.success(

@@ -6,7 +6,7 @@ reviewer can read in one sitting.
 """
 from __future__ import annotations
 
-from app import ActionResult, chat, gw, safe_err, _user_id
+from app import ActionResult, chat, failed, _user_id
 from fmt import age, clip
 from models import ConversationRecord, MessageRecord
 from params import ListParams, ReadParams
@@ -43,14 +43,10 @@ async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
         return ActionResult.error("Could not identify the calling user.")
 
     try:
-        data, err = await gw(
-            "GET", "/v1/conversations", uid,
-            params={"limit": params.limit, "include_archived": params.include_archived},
-        )
+        data = await ctx.conversations.list(
+            limit=params.limit, include_archived=params.include_archived)
     except Exception as e:
-        return ActionResult.error(f"Could not reach the conversation store: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("list conversations", e)
 
     active_id = (data or {}).get("active_id") or ""
     rows = [_row(c, active_id) for c in (data or {}).get("conversations", [])]
@@ -100,22 +96,15 @@ async def fn_read_conversation(ctx, params: ReadParams) -> ActionResult:
         # No id given: resolve the live thread rather than refusing. "What were
         # we just saying" is the most natural way to ask, and it should work.
         if not cid:
-            listing, err = await gw("GET", "/v1/conversations", uid, params={"limit": 1})
-            if err:
-                return ActionResult.error(err)
+            listing = await ctx.conversations.list(limit=1)
             cid = (listing or {}).get("active_id") or ""
             if not cid:
                 return ActionResult.success(
                     data=[], summary="There is no live conversation yet.")
 
-        data, err = await gw(
-            "GET", f"/v1/conversations/{cid}/messages", uid,
-            params={"limit": params.limit},
-        )
+        data = await ctx.conversations.messages(cid, limit=params.limit)
     except Exception as e:
-        return ActionResult.error(f"Could not reach the conversation store: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("read the conversation", e)
 
     meta = (data or {}).get("conversation") or {}
     msgs = [

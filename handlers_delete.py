@@ -18,7 +18,7 @@ exactly what came back — including which case it was.
 """
 from __future__ import annotations
 
-from app import ActionResult, chat, gw, safe_err, _user_id
+from app import ActionResult, chat, failed, _user_id
 from models import DeletedRecord
 from params import DeleteParams
 
@@ -48,11 +48,9 @@ async def fn_delete_conversation(ctx, params: DeleteParams) -> ActionResult:
             "this is not a call to make on a guess.")
 
     try:
-        data, err = await gw("DELETE", f"/v1/conversations/{cid}", uid)
+        data = await ctx.conversations.delete(cid)
     except Exception as e:
-        return ActionResult.error(f"Could not delete the conversation: {safe_err(e)}")
-    if err:
-        return ActionResult.error(err)
+        return failed("delete the conversation", e)
 
     payload = data or {}
     was_live = bool(payload.get("was_active"))
