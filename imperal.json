@@ -2,7 +2,7 @@
   "manifest_schema_version": 3,
   "sdk_version": "5.12.1",
   "app_id": "thoughts",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "name": "Thoughts",
   "description": "Every conversation with Webbee, on every surface, kept and reachable — search back through past threads, continue an older one, rename or pin what matters, and start fresh without losing what came before.",
   "icon": "icon.svg",
@@ -173,7 +173,7 @@
     },
     {
       "name": "read_conversation",
-      "description": "Read what was actually said in one conversation — its messages, oldest first, with which surface each was said on. Pass a thread id from list_conversations, or leave it empty to read the live conversation.",
+      "description": "Read what was actually said in one conversation — its messages, oldest first, with who said what and when. Pass a thread id from list_conversations, or leave it empty to read the live conversation.",
       "action_type": "read",
       "chain_callable": true,
       "effects": [],
@@ -213,7 +213,7 @@
           },
           "surface": {
             "default": "",
-            "description": "Where it was said — panel, telegram, terminal",
+            "description": "Where it was said, when the platform recorded one",
             "title": "Surface",
             "type": "string"
           },

@@ -86,7 +86,7 @@ async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
     data_model=MessageRecord,
     description=(
         "Read what was actually said in one conversation — its messages, oldest "
-        "first, with which surface each was said on. Pass a thread id from "
+        "first, with who said what and when. Pass a thread id from "
         "list_conversations, or leave it empty to read the live conversation."),
 )
 async def fn_read_conversation(ctx, params: ReadParams) -> ActionResult:

@@ -31,7 +31,12 @@ class MessageRecord(BaseModel):
 
     role: str = Field(description="who said it — user or assistant")
     text: str = Field(description="What was said")
-    surface: str = Field(default="", description="Where it was said — panel, telegram, terminal")
+    # Not every writer of the live record stamps this: the gateway tags it on
+    # the native-app routes, while panel / Telegram / terminal turns reach the
+    # record through other writers that do not. So it is genuinely optional —
+    # described as "when known" rather than promising an origin the reader
+    # would find blank on the surfaces they actually use.
+    surface: str = Field(default="", description="Where it was said, when the platform recorded one")
     when: str = Field(default="", description="How long ago")
 
 
