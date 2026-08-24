@@ -35,10 +35,12 @@ def _row(c: dict, active_id: str) -> dict:
     action_type="read",
     data_model=ConversationRecord,
     description=(
-        "List the user's past conversations with Webbee — every thread from every "
-        "surface (panel, Telegram, terminal), pinned first then newest, marking "
-        "which one is live right now. Use this FIRST whenever the user refers to "
-        "something you talked about before, instead of answering from memory."),
+        "List the user's past hub-chat conversations with Webbee — the shared record "
+        "the panel reads and writes — pinned first then newest, marking which one "
+        "is live right now. Use this FIRST whenever the user refers to something "
+        "you talked about before, instead of answering from memory. Connector "
+        "surfaces (Telegram) are delivered on their own channel and are NOT in "
+        "this record."),
 )
 async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
     """The inventory of the caller's own threads."""
