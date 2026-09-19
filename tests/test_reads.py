@@ -192,3 +192,25 @@ async def test_list_renders_an_iso_timestamp_as_an_age(make_ctx, gw_mock):
     updated = res.data[0]["updated"]
     assert "T" not in updated, f"raw ISO leaked into the UI: {updated!r}"
     assert updated.endswith("ago") or updated == "just now" or " " in updated
+
+
+@pytest.mark.asyncio
+async def test_read_cleans_actions_marker_and_deduplicates(make_ctx, gw_mock):
+    """Test that [Actions: ...] prefix is stripped and duplicate adjacent messages removed."""
+    gw_mock.get("/v1/conversations/c_clean/messages", json={
+        "conversation": {"title": "Clean thread"},
+        "messages": [
+            {"role": "assistant", "content": "[Actions: tool_a]\nResult message", "surface": "web", "ts": 1787250000},
+            {"role": "assistant", "content": "Result message", "surface": "web", "ts": 1787250010},
+            {"role": "user", "content": "next question", "surface": "web", "ts": 1787250020},
+        ],
+    })
+
+    res = await h.fn_read_conversation(
+        make_ctx(), ReadParams(conversation_id="c_clean"))
+
+    assert res.status == "success"
+    # Deduplicated: only one "Result message" and one "next question"
+    assert len(res.data) == 2
+    assert res.data[0]["text"] == "Result message"
+    assert res.data[1]["text"] == "next question"

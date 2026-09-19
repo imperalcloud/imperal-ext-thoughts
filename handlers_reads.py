@@ -20,6 +20,19 @@ VAULT_BASE_URL = os.getenv("IMPERAL_VAULT_URL", "http://10.199.6.160:8000")
 VAULT_TIMEOUT = float(os.getenv("IMPERAL_VAULT_TIMEOUT", "2.0"))
 
 
+
+def _clean_message_text(text: str) -> str:
+    """Strip internal kernel markers like [Actions: ...] and clean whitespace."""
+    if not isinstance(text, str) or not text:
+        return ""
+    s = text.strip()
+    if s.startswith("[Actions:"):
+        nl = s.find("\n")
+        if nl != -1:
+            s = s[nl + 1:].strip()
+    return s
+
+
 def _row(c: dict, active_id: str) -> dict:
     """One archive record, shaped for a human reading a list."""
     return {
@@ -192,15 +205,22 @@ async def fn_read_conversation(ctx, params: ReadParams) -> ActionResult:
                 if resp.status_code == 200:
                     data = resp.json()
                     items = data.get("items", [])
-                    msgs = [
-                        {
-                            "role": m.get("role", "user"),
-                            "text": clip(m.get("text") or "", 600),
+                    msgs = []
+                    _last_t, _last_r = None, None
+                    for m in items:
+                        t = _clean_message_text(m.get("text") or "")
+                        r = m.get("role", "user")
+                        if not t:
+                            continue
+                        if t == _last_t and r == _last_r:
+                            continue
+                        _last_t, _last_r = t, r
+                        msgs.append({
+                            "role": r,
+                            "text": clip(t, 600),
                             "surface": "terminal",
                             "when": age(m.get("ts")),
-                        }
-                        for m in items
-                    ]
+                        })
                     title = _human_terminal_title(cid)
                     if not msgs:
                         return ActionResult.success(
@@ -226,15 +246,22 @@ async def fn_read_conversation(ctx, params: ReadParams) -> ActionResult:
         return failed("read the conversation", e)
 
     meta = (data or {}).get("conversation") or {}
-    msgs = [
-        {
-            "role": m.get("role", ""),
-            "text": clip(m.get("content") or "", 400),
+    msgs = []
+    _last_t, _last_r = None, None
+    for m in (data or {}).get("messages", []):
+        t = _clean_message_text(m.get("content") or "")
+        r = m.get("role", "")
+        if not t:
+            continue
+        if t == _last_t and r == _last_r:
+            continue
+        _last_t, _last_r = t, r
+        msgs.append({
+            "role": r,
+            "text": clip(t, 400),
             "surface": m.get("surface") or "",
             "when": age(m.get("ts")),
-        }
-        for m in (data or {}).get("messages", [])
-    ]
+        })
 
     title = meta.get("title") or "Untitled"
     if not msgs:
