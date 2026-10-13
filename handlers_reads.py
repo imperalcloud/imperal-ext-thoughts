@@ -10,14 +10,8 @@ from app import ActionResult, chat, failed, _user_id
 from fmt import age, clip
 from models import ConversationRecord, MessageRecord
 from params import ListParams, ReadParams
-import os
-import json
-import logging
-import httpx
-
-log = logging.getLogger("thoughts.reads")
-VAULT_BASE_URL = os.getenv("IMPERAL_VAULT_URL", "http://10.199.6.160:8000")
-VAULT_TIMEOUT = float(os.getenv("IMPERAL_VAULT_TIMEOUT", "2.0"))
+import hashlib
+import re
 
 
 
@@ -53,71 +47,21 @@ def _row(c: dict, active_id: str) -> dict:
 
 
 
-def _human_terminal_title(session_id: str) -> str:
-    """Derive a friendly title from marathon session id."""
-    # marathon-imp_u_XWnehlFBls-r7bb586ff8d96-s15f1f9 -> Terminal (r7bb586)
-    parts = session_id.split("-")
-    repo_part = ""
-    for p in parts:
-        if p.startswith("r") and len(p) >= 7:
-            repo_part = p[:7]
-            break
-    if repo_part:
-        return f"Terminal Marathon ({repo_part})"
-    return f"Terminal Session ({session_id[:16]})"
+_STEP_SUFFIX = re.compile(r"-s[a-f0-9]+$")
 
 
-async def _fetch_vault_terminal_sessions(uid: str, active_id: str) -> list[dict]:
-    """Fetch terminal sessions from Redis registry / Vault to make them visible in Thoughts Room."""
-    rows = []
-    try:
-        # Check Redis coding_remote:sessions for this user
-        import redis.asyncio as aioredis
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        r = aioredis.from_url(redis_url, decode_responses=True)
-        try:
-            sess_items = await r.zrevrange(f"imperal:coding_remote:sessions:{uid}", 0, 50, withscores=True)
-        finally:
-            await r.aclose()
+def _terminal_conversation_id(run_id: str) -> str:
+    """The Thoughts Room id of a terminal run (``marathon-…``).
 
-        async with httpx.AsyncClient(timeout=VAULT_TIMEOUT) as client:
-            for item in sess_items:
-                sess_id = item[0] if isinstance(item, (list, tuple)) else str(item)
-                score = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else 0
-                
-                # Fetch turn count & preview from Vault
-                msg_count = 0
-                preview = "Terminal marathon session"
-                try:
-                    resp = await client.get(
-                        f"{VAULT_BASE_URL}/v1/session/history",
-                        params={"user_id": uid, "session_id": sess_id, "limit": 1, "offset": 0}
-                    )
-                    if resp.status_code == 200:
-                        vdata = resp.json()
-                        msg_count = vdata.get("total", 0)
-                        items = vdata.get("items", [])
-                        if items:
-                            first_text = items[0].get("text", "")
-                            preview = clip(first_text, 80)
-                except Exception as ve:
-                    log.debug("Vault history peek failed for %s: %s", sess_id, ve)
+    The gateway mirrors every terminal run into the room as ``conv_term_<h>``,
+    where ``h`` is the first 16 hex of sha256 over the run id without its step
+    suffix (gateway ``terminal_mirror``). A caller that still holds the raw run
+    id reaches the same thread through ``ctx.conversations`` -- never by reading
+    the vault directly: only the gateway knows whose thread it is.
+    """
+    norm = _STEP_SUFFIX.sub("", run_id.strip())
+    return "conv_term_" + hashlib.sha256(norm.encode()).hexdigest()[:16]
 
-                if msg_count > 0:
-                    rows.append({
-                        "id": sess_id,
-                        "title": _human_terminal_title(sess_id),
-                        "message_count": int(msg_count),
-                        "preview": preview,
-                        "updated": age(score) if score else "recently",
-                        "live": sess_id == active_id,
-                        "pinned": False,
-                        "archived": False,
-                        "_score": float(score or 0),
-                    })
-    except Exception as e:
-        log.warning("Failed to load terminal sessions for %s: %s", uid, e)
-    return rows
 
 @chat.function(
     "list_conversations",
@@ -130,7 +74,7 @@ async def _fetch_vault_terminal_sessions(uid: str, active_id: str) -> list[dict]
         "to something you talked about before, instead of answering from memory."),
 )
 async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
-    """The inventory of the caller's own threads — including terminal marathons from Vault."""
+    """The inventory of the caller's own threads (terminal runs included, as the gateway mirrors them)."""
     uid = _user_id(ctx)
     if not uid:
         return ActionResult.error("Could not identify the calling user.")
@@ -143,16 +87,6 @@ async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
 
     active_id = (data or {}).get("active_id") or ""
     rows = [_row(c, active_id) for c in (data or {}).get("conversations", [])]
-
-    # Cross-surface Vault & Terminal threads integration (2026-09-17)
-    try:
-        vault_threads = await _fetch_vault_terminal_sessions(uid, active_id)
-        existing_ids = {r["id"] for r in rows}
-        for vt in vault_threads:
-            if vt["id"] not in existing_ids:
-                rows.append(vt)
-    except Exception as e:
-        log.debug("fetch vault terminal sessions failed (fail-soft): %s", e)
 
     # Filtering is done here
     q = params.query.strip().lower()
@@ -187,52 +121,16 @@ async def fn_list_conversations(ctx, params: ListParams) -> ActionResult:
         "list_conversations, or leave it empty to read the live conversation."),
 )
 async def fn_read_conversation(ctx, params: ReadParams) -> ActionResult:
-    """One thread's messages — supports standard gateway threads AND Vault terminal sessions."""
+    """One thread's messages, terminal runs included -- always through the gateway."""
     uid = _user_id(ctx)
     if not uid:
         return ActionResult.error("Could not identify the calling user.")
 
     cid = params.conversation_id.strip()
 
-    # Case 1: Terminal Marathon Session from Tenant Vault
-    if cid.startswith("marathon-") or cid.startswith("sess-terminal-") or "terminal" in cid:
-        try:
-            async with httpx.AsyncClient(timeout=VAULT_TIMEOUT) as client:
-                resp = await client.get(
-                    f"{VAULT_BASE_URL}/v1/session/history",
-                    params={"user_id": uid, "session_id": cid, "limit": params.limit, "offset": 0},
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    items = data.get("items", [])
-                    msgs = []
-                    _last_t, _last_r = None, None
-                    for m in items:
-                        t = _clean_message_text(m.get("text") or "")
-                        r = m.get("role", "user")
-                        if not t:
-                            continue
-                        if t == _last_t and r == _last_r:
-                            continue
-                        _last_t, _last_r = t, r
-                        msgs.append({
-                            "role": r,
-                            "text": clip(t, 600),
-                            "surface": "terminal",
-                            "when": age(m.get("ts")),
-                        })
-                    title = _human_terminal_title(cid)
-                    if not msgs:
-                        return ActionResult.success(
-                            data=[], summary=f"“{title}” has no messages yet.")
-                    return ActionResult.success(
-                        data=msgs,
-                        summary=f"{len(msgs)} message(s) from “{title}” (Terminal Vault).",
-                    )
-        except Exception as e:
-            log.warning("read terminal session from vault failed: %s", e)
+    if cid.startswith("marathon-"):
+        cid = _terminal_conversation_id(cid)
 
-    # Case 2: Standard gateway conversations
     try:
         if not cid:
             listing = await ctx.conversations.list(limit=1)

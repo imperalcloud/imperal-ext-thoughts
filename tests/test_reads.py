@@ -214,3 +214,34 @@ async def test_read_cleans_actions_marker_and_deduplicates(make_ctx, gw_mock):
     assert len(res.data) == 2
     assert res.data[0]["text"] == "Result message"
     assert res.data[1]["text"] == "next question"
+
+
+# ── terminal runs reach the room through the gateway only ──────────────── #
+
+@pytest.mark.asyncio
+async def test_read_maps_a_marathon_run_id_to_its_room_thread(make_ctx, gw_mock):
+    """A raw ``marathon-…`` id is read as the gateway's ``conv_term_<h>`` thread
+    (sha256 of the run id without its step suffix), never from the vault."""
+    import hashlib
+    run = "marathon-imp_u_TEST000000-r762ef33d2455"
+    cid = "conv_term_" + hashlib.sha256(run.encode()).hexdigest()[:16]
+    gw_mock.get(f"/v1/conversations/{cid}/messages", json={
+        "conversation": {"title": "Terminal: fix the build"},
+        "messages": [{"role": "user", "content": "fix the build", "ts": 1787250000}],
+    })
+
+    res = await h.fn_read_conversation(
+        make_ctx(), ReadParams(conversation_id=run + "-s970e6c"))
+
+    assert res.status == "success"
+    assert gw_mock.was_called("GET", f"/v1/conversations/{cid}/messages")
+    assert gw_mock.last("GET", f"/v1/conversations/{cid}/messages").headers.get("X-Acting-User") == UID
+
+
+def test_reads_module_has_no_direct_vault_or_redis_access():
+    """Per-user isolation lives in the gateway; this app must not bypass it."""
+    import inspect
+    import handlers_reads
+    src = inspect.getsource(handlers_reads)
+    for needle in ("10.199.6.160", "IMPERAL_VAULT_URL", "/v1/session/history", "REDIS_URL", "redis.asyncio"):
+        assert needle not in src, needle
